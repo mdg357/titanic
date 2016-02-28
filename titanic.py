@@ -5,6 +5,8 @@ https://www.kaggle.com/c/titanic/details
 """
 
 import csv as csv
+import math
+import sys
 import warnings
 import pandas as pd
 import numpy as np
@@ -12,6 +14,12 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
+
+RUN_STATISTICS = []
+MIN_WEIGHT = 1
+MAX_WEIGHT = 1
+MAX_INT = sys.maxsize
+MIN_INT = -MAX_INT - 1
 
 def read_data_from_file(file_name):
     """ Read the raw data in from the .csv file
@@ -75,9 +83,51 @@ def transform_data(d_frame):
     return drop_unused_columns(d_frame, drop_fields)
 
 
+def create_forest(train_data, test_data, survivors, weight_dict, row_to_remove):
+    """ Create and train a random forest based on the given parameters
+    """
+
+    # Remove the indicated row from the numpy array
+    train_data = np.delete(train_data, row_to_remove, 0)
+    test_data = np.delete(test_data, row_to_remove, 0)
+    survivors = np.delete(survivors, row_to_remove, 0)
+
+    forest = RandomForestClassifier(n_estimators=1000, n_jobs=-1, \
+        class_weight=weight_dict, max_features=None)
+    forest = forest.fit(train_data[0::, 1::], train_data[0::, 0])
+    forest.predict(test_data).astype(int) #OUTPUT = FOREST.predict(test_data).astype(int)
+    score = forest.score(test_data, survivors)
+
+    #PREDICTIONS_FILE = open("myfirstforest.csv", "wb")
+    #OPEN_FILE_OBJ = csv.writer(PREDICTIONS_FILE)
+    #OPEN_FILE_OBJ.writerow(["PassengerId", "Survived"])
+    #OPEN_FILE_OBJ.writerows(zip(PASSENGER_IDS, OUTPUT))
+    #PREDICTIONS_FILE.close()
+
+    RUN_STATISTICS.append(score)
+    
+    print 'Removed row {0:000}, Score: {1}'.format(row_to_remove, score)
+    sys.stdout.flush()
+    return
+
+
+def generate_weight_dictionaries(min_weight, max_weight):
+    """ Create a list of weight dictionaries based on the provided min/max
+    """
+    weight_dicts = []
+
+    for wgt_one in range(min_weight, max_weight + 1):
+        for wgt_two in range(min_weight, max_weight + 1):
+            weight_dicts.append({0: wgt_one, 1: wgt_two})
+
+    return weight_dicts
+
+
 if __name__ == "__main__":
     TEST_DATA = read_data_from_file('./data/test_2.csv')
     TRAIN_DATA = read_data_from_file('./data/train.csv')
+    RECORDS_TO_IGNORE = math.ceil(len(TRAIN_DATA) * 0.05)
+    ROW_COUNT = len(TRAIN_DATA)
 
     # Collect the test data's PassengerIds before dropping the series
     PASSENGER_IDS = TEST_DATA['PassengerId'].values
@@ -87,25 +137,17 @@ if __name__ == "__main__":
     TEST_DATA = transform_data(TEST_DATA)
     TRAIN_DATA = transform_data(TRAIN_DATA)
 
-    # The data is now ready to go. So lets fit to the train, then predict to the test!
     # Convert back to a numpy array
     TRAIN_DATA = TRAIN_DATA.values
     TEST_DATA = TEST_DATA.values
 
-    print 'Training...'
-    FOREST = RandomForestClassifier(n_estimators=1000)
-    FOREST = FOREST.fit(TRAIN_DATA[0::, 1::], TRAIN_DATA[0::, 0])
+    WEIGHT_DICTS = generate_weight_dictionaries(MIN_WEIGHT, MAX_WEIGHT)
 
-    print 'Predicting...'
-    OUTPUT = FOREST.predict(TEST_DATA).astype(int)
-    SCORE = FOREST.score(TEST_DATA, SURVIVORS)
-
-    print 'Writing output file...'
-    PREDICTIONS_FILE = open("myfirstforest.csv", "wb")
-    OPEN_FILE_OBJ = csv.writer(PREDICTIONS_FILE)
-    OPEN_FILE_OBJ.writerow(["PassengerId", "Survived"])
-    OPEN_FILE_OBJ.writerows(zip(PASSENGER_IDS, OUTPUT))
-    PREDICTIONS_FILE.close()
-
-    print 'Score: {0}'.format(SCORE)
-    print 'Done.'
+    for row_num in range(0, ROW_COUNT):
+        create_forest(TRAIN_DATA, TEST_DATA, SURVIVORS, None, row_num)
+        
+    OUTLIER_FILE = open("outliers.csv", "wb")
+    OPEN_FILE_OBJ = csv.writer(OUTLIER_FILE)
+    OPEN_FILE_OBJ.writerow(["RowRemoved", "Score"])
+    OPEN_FILE_OBJ.writerows(zip(PASSENGER_IDS, RUN_STATISTICS))
+    OUTLIER_FILE.close()
